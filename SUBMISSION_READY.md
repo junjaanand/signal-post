@@ -4,7 +4,7 @@
 **Email**: `varunjunja5@gmail.com`  
 **Submission Deadline**: October 17, 2026, 10:29 PM / 11:59 PM IST  
 **GitHub Repository**: `https://github.com/junjaanand/signal-post`  
-**Pinned Git Commit Hash**: `fea5f97ad2a128381469ade94f0febae85ac7ed8`  
+**Pinned Git Commit Hash**: `2bc33ba609cf59678b04548ccff6409b575394aa`  
 
 ---
 
@@ -12,7 +12,7 @@
 
 When submitting on Unstop under **"Signalpost project URL (for this challenge only)"**, paste:
 ```text
-https://github.com/junjaanand/signal-post/commit/fea5f97ad2a128381469ade94f0febae85ac7ed8
+https://github.com/junjaanand/signal-post/commit/2bc33ba609cf59678b04548ccff6409b575394aa
 ```
 
 ---
@@ -31,7 +31,7 @@ Here is our official submission for the Signalpost Company Intelligence Challeng
 
 - Agent name: SignalpostAgent-v1.0
 - Repository URL: https://github.com/junjaanand/signal-post
-- Exact commit hash: fea5f97ad2a128381469ade94f0febae85ac7ed8
+- Exact commit hash: 2bc33ba609cf59678b04548ccff6409b575394aa
 - 100-company smoke-test report URL: https://github.com/junjaanand/signal-post/blob/main/out/smoke-report.json
 - One-command run instruction:
   uv run python scripts/run_competition_batch.py --organisations $INPUT_FILE --output $OUTPUT_FILE --report $REPORT_FILE --run-id $RUN_ID --concurrency 15
