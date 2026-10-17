@@ -1,0 +1,12 @@
+{
+  "run_id": "smoke-test-100",
+  "companies_requested": 100,
+  "companies_completed": 100,
+  "total_runtime_seconds": 1151.42,
+  "total_outbound_requests": 528,
+  "total_available_claims": 1348,
+  "average_claims_per_company": 13.5,
+  "estimated_api_cost_usd": 0.0,
+  "output_file": "out\\smoke-envelopes.jsonl",
+  "qualification_ready": true
+}
