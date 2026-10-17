@@ -13,7 +13,7 @@
 When submitting on Unstop under **"Signalpost project URL (for this challenge only)"**:
 Paste the direct URL to the latest commit on the `main` branch:
 ```text
-https://github.com/junjaanand/signal-post/commit/<LATEST_COMMIT_HASH>
+https://github.com/junjaanand/signal-post/commit/e8ae9567ef422b48ad7510fd257d90173de7cd56
 ```
 *(On GitHub, open the repository and click the latest commit on `main` to copy the exact URL).*
 
@@ -33,7 +33,7 @@ Here is our official submission for the Signalpost Company Intelligence Challeng
 
 - Agent name: SignalpostAgent-v1.0
 - Repository URL: https://github.com/junjaanand/signal-post
-- Exact commit hash: <INSERT_LATEST_COMMIT_HASH>
+- Exact commit hash: e8ae9567ef422b48ad7510fd257d90173de7cd56
 - 100-company smoke-test report URL: https://github.com/junjaanand/signal-post/blob/main/out/smoke-report.json
 - One-command run instruction:
 
