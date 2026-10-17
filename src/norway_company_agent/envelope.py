@@ -80,7 +80,7 @@ def build_company_envelope(
         for ev in ev_list:
             _add_ev(ev)
 
-        # 1. Legal Name
+        # 1. Legal Name & Name alias
         envelope.add_claim(
             field="legal_name",
             value=entity.name,
@@ -88,6 +88,14 @@ def build_company_envelope(
             confidence=1.0,
             evidence=ev_list[0] if ev_list else None,
         )
+        if entity.name:
+            envelope.add_claim(
+                field="name",
+                value=entity.name,
+                availability=AvailabilityState.available,
+                confidence=1.0,
+                evidence=ev_list[0] if ev_list else None,
+            )
 
         # 2. Legal Form (AS, ASA, ENK)
         envelope.add_claim(
@@ -125,7 +133,7 @@ def build_company_envelope(
                 confidence=1.0,
             )
 
-        # 6. Registered Business Address
+        # 6. Registered Business Address & Municipality
         addr_str = None
         if entity.business_address:
             addr_parts = entity.business_address.get("adresse", [])
@@ -140,19 +148,42 @@ def build_company_envelope(
             availability=AvailabilityState.available if addr_str else AvailabilityState.not_available,
             confidence=1.0,
         )
+        if entity.municipality:
+            envelope.add_claim(
+                field="municipality",
+                value=entity.municipality,
+                availability=AvailabilityState.available,
+                confidence=1.0,
+            )
 
-        # 7. Registered Employee Count
+        # 7. Registered Employee Count & Employees alias
         envelope.add_claim(
             field="registered_employee_count",
             value=entity.num_employees,
             availability=AvailabilityState.available if entity.num_employees is not None else AvailabilityState.not_available,
             confidence=0.95,
         )
+        if entity.num_employees is not None:
+            envelope.add_claim(
+                field="employees",
+                value=entity.num_employees,
+                availability=AvailabilityState.available,
+                confidence=0.95,
+            )
 
         # 8. Active/Bankrupt Status
         envelope.add_claim(
             field="is_active",
             value=(not entity.is_bankrupt and not entity.is_under_liquidation),
+            availability=AvailabilityState.available,
+            confidence=1.0,
+        )
+
+        # 9. Accounting obligation assessment
+        is_obliged = entity.legal_form in {"AS", "ASA", "BRL", "BBL", "STI", "SF", "VPFO"}
+        envelope.add_claim(
+            field="accounting_obligation",
+            value="required_by_legal_form" if is_obliged else "threshold_or_activity_dependent",
             availability=AvailabilityState.available,
             confidence=1.0,
         )
@@ -244,6 +275,14 @@ def build_company_envelope(
             confidence=1.0,
             reporting_period=rep_period,
         )
+        if latest_fin.revenue_nok is not None:
+            envelope.add_claim(
+                field="revenue",
+                value=latest_fin.revenue_nok,
+                availability=AvailabilityState.available,
+                confidence=1.0,
+                reporting_period=rep_period,
+            )
 
         envelope.add_claim(
             field="operating_profit_nok",
@@ -252,6 +291,14 @@ def build_company_envelope(
             confidence=1.0,
             reporting_period=rep_period,
         )
+        if latest_fin.operating_profit_nok is not None:
+            envelope.add_claim(
+                field="operating_result",
+                value=latest_fin.operating_profit_nok,
+                availability=AvailabilityState.available,
+                confidence=1.0,
+                reporting_period=rep_period,
+            )
 
         envelope.add_claim(
             field="net_income_nok",
@@ -260,6 +307,14 @@ def build_company_envelope(
             confidence=1.0,
             reporting_period=rep_period,
         )
+        if latest_fin.net_income_nok is not None:
+            envelope.add_claim(
+                field="annual_result",
+                value=latest_fin.net_income_nok,
+                availability=AvailabilityState.available,
+                confidence=1.0,
+                reporting_period=rep_period,
+            )
 
         envelope.add_claim(
             field="total_assets_nok",
@@ -268,6 +323,14 @@ def build_company_envelope(
             confidence=1.0,
             reporting_period=rep_period,
         )
+        if latest_fin.total_assets_nok is not None:
+            envelope.add_claim(
+                field="assets",
+                value=latest_fin.total_assets_nok,
+                availability=AvailabilityState.available,
+                confidence=1.0,
+                reporting_period=rep_period,
+            )
 
         envelope.add_claim(
             field="total_equity_nok",
@@ -276,6 +339,14 @@ def build_company_envelope(
             confidence=1.0,
             reporting_period=rep_period,
         )
+        if latest_fin.total_equity_nok is not None:
+            envelope.add_claim(
+                field="equity",
+                value=latest_fin.total_equity_nok,
+                availability=AvailabilityState.available,
+                confidence=1.0,
+                reporting_period=rep_period,
+            )
 
         envelope.add_claim(
             field="financial_year_reported",
@@ -299,6 +370,12 @@ def build_company_envelope(
     if website_verified and website_url:
         envelope.add_claim(
             field="official_website",
+            value=website_url,
+            availability=AvailabilityState.available,
+            confidence=0.98,
+        )
+        envelope.add_claim(
+            field="website",
             value=website_url,
             availability=AvailabilityState.available,
             confidence=0.98,
@@ -336,6 +413,12 @@ def build_company_envelope(
     else:
         envelope.add_claim(
             field="official_website",
+            value=None,
+            availability=AvailabilityState.ambiguous if website_url else AvailabilityState.not_available,
+            confidence=0.90,
+        )
+        envelope.add_claim(
+            field="website",
             value=None,
             availability=AvailabilityState.ambiguous if website_url else AvailabilityState.not_available,
             confidence=0.90,

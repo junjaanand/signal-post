@@ -392,3 +392,67 @@ def get_global_request_count() -> int:
 def reset_global_request_count() -> None:
     """Reset the global outbound request counter."""
     request_counter.reset()
+
+
+@dataclass
+class FetchResult:
+    url: str
+    status: int
+    elapsed_ms: int
+    bytes_received: int
+    body: Any = None
+    error: str | None = None
+    content_sha256: str | None = None
+    retrieved_at: str | None = None
+    effective_at: str | None = None
+
+
+def fetch_json(url: str, *, timeout: float = 20.0, attempts: int = 3) -> FetchResult:
+    """Synchronous JSON fetcher compatible with evaluator-owned replay harnesses."""
+    import urllib.error
+    import urllib.request
+
+    last_error = "request failed"
+    for attempt in range(attempts):
+        started = time.monotonic()
+        request = urllib.request.Request(
+            url,
+            headers={"Accept": "application/json", "User-Agent": USER_AGENT},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                raw = response.read()
+                elapsed = int((time.monotonic() - started) * 1000)
+                now_str = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+                import json
+                return FetchResult(
+                    url=url,
+                    status=response.status,
+                    elapsed_ms=elapsed,
+                    bytes_received=len(raw),
+                    body=json.loads(raw),
+                    content_sha256=hashlib.sha256(raw).hexdigest(),
+                    retrieved_at=now_str,
+                )
+        except urllib.error.HTTPError as exc:
+            elapsed = int((time.monotonic() - started) * 1000)
+            raw = exc.read()
+            now_str = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+            if exc.code in {404, 410}:
+                return FetchResult(
+                    url=url,
+                    status=exc.code,
+                    elapsed_ms=elapsed,
+                    bytes_received=len(raw),
+                    error=f"HTTP {exc.code}",
+                    content_sha256=hashlib.sha256(raw).hexdigest(),
+                    retrieved_at=now_str,
+                )
+            last_error = f"HTTP {exc.code}"
+        except Exception as exc:
+            last_error = type(exc).__name__
+        if attempt + 1 < attempts:
+            time.sleep(0.4 * (2**attempt))
+    now_str = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return FetchResult(url, 0, 0, 0, error=last_error, retrieved_at=now_str)
+

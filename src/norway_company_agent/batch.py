@@ -125,6 +125,30 @@ async def research_single_company(
         return env
 
 
+def load_bulk_csv(bulk_path: Path) -> dict[str, dict[str, Any]]:
+    """Parse local Brønnøysund bulk CSV snapshot into fast in-memory lookup."""
+    import csv
+    cache: dict[str, dict[str, Any]] = {}
+    if not bulk_path.exists():
+        logger.warning(f"Bulk path does not exist: {bulk_path}")
+        return cache
+    try:
+        with open(bulk_path, mode="r", encoding="utf-8-sig", errors="replace") as f:
+            first_line = f.readline()
+            delim = ";" if ";" in first_line else ","
+            f.seek(0)
+            reader = csv.DictReader(f, delimiter=delim)
+            for row in reader:
+                org = row.get("organisasjonsnummer") or row.get("orgnr")
+                if org:
+                    clean = org.strip().replace(" ", "")
+                    cache[clean] = row
+        logger.info(f"Loaded {len(cache)} bulk entities from {bulk_path}")
+    except Exception as e:
+        logger.warning(f"Failed parsing bulk CSV {bulk_path}: {e}")
+    return cache
+
+
 async def run_batch(
     organisations: list[str],
     run_id: str,
@@ -132,6 +156,7 @@ async def run_batch(
     report_path: Path,
     concurrency: int = DEFAULT_CONCURRENCY,
     prior_manifest_path: Path | None = None,
+    bulk_path: Path | None = None,
 ) -> dict[str, Any]:
     """Execute research on an entire batch of companies concurrently."""
     batch_start = time.perf_counter()
@@ -150,6 +175,8 @@ async def run_batch(
                             prior_snapshots[item["organisation_number"]] = item
         except Exception as e:
             logger.warning(f"Could not load prior manifest: {e}")
+
+    bulk_cache = load_bulk_csv(bulk_path) if bulk_path else {}
 
     brreg_http = create_brreg_client()
     web_client = create_web_client()
@@ -170,12 +197,38 @@ async def run_batch(
                 )
 
         tasks = [_worker(org) for org in organisations]
-        results = await asyncio.gather(*tasks, return_exceptions=False)
+        raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        results: list[CompanyEnvelope] = []
+        for i, res in enumerate(raw_results):
+            if isinstance(res, Exception):
+                clean_org = organisations[i].strip().replace(" ", "").replace("-", "")
+                logger.error(f"Worker exception for {clean_org}: {res}")
+                now = datetime.now(timezone.utc)
+                err_env = CompanyEnvelope(
+                    organisation_number=clean_org,
+                    run=RunMetadata(
+                        run_id=run_id,
+                        started_at=now,
+                        completed_at=now,
+                        terminal_status="failed",
+                    ),
+                    claims=[],
+                    evidence=[],
+                    changes=[],
+                    errors=[str(res)],
+                    operations=OperationsMetrics(runtime_ms=0),
+                )
+                err_env.add_claim("error_occurred", str(res), AvailabilityState.failed, 0.0)
+                results.append(err_env)
+            else:
+                results.append(res)
 
     # Write JSONL output (1 line per company)
     with open(output_path, "w", encoding="utf-8") as f:
         for env in results:
             f.write(env.to_jsonl_line() + "\n")
+
 
     total_time_s = time.perf_counter() - batch_start
     total_reqs = get_global_request_count()

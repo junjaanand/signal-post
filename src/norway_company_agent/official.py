@@ -495,3 +495,186 @@ class OfficialRegistryClient:
             "group_subsidiaries": subs,
             "evidence_list": evidence_list,
         }
+
+
+# ---------------------------------------------------------------------------
+# Evaluator Replay Bridge Functions
+# ---------------------------------------------------------------------------
+
+def _get_path(value: Any, *path: str) -> Any:
+    for key in path:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    return value
+
+
+def normalize_entity(body: Any) -> dict[str, Any]:
+    body = body if isinstance(body, dict) else {}
+    return {
+        "organisation_number": body.get("organisasjonsnummer"),
+        "name": body.get("navn"),
+        "legal_form": _get_path(body, "organisasjonsform", "kode"),
+        "employees": body.get("antallAnsatte"),
+        "bankrupt": body.get("konkurs"),
+        "liquidating": body.get("underAvvikling"),
+        "website": body.get("hjemmeside"),
+        "industry": body.get("naeringskode1"),
+        "business_address": body.get("forretningsadresse"),
+        "postal_address": body.get("postadresse"),
+        "latest_submitted_accounts": body.get("sisteInnsendteAarsregnskap"),
+    }
+
+
+def normalize_financials(body: Any) -> dict[str, Any]:
+    records = body if isinstance(body, list) else []
+    if not records:
+        return {"records": []}
+    normalized = []
+    for item in records[:3]:
+        normalized.append({
+            "record_id": item.get("id"),
+            "account_type": item.get("regnskapstype"),
+            "period": item.get("regnskapsperiode"),
+            "currency": item.get("valuta"),
+            "revenue": _get_path(item, "resultatregnskapResultat", "driftsresultat", "driftsinntekter", "sumDriftsinntekter"),
+            "operating_result": _get_path(item, "resultatregnskapResultat", "driftsresultat", "driftsresultat"),
+            "profit_before_tax": _get_path(item, "resultatregnskapResultat", "ordinaertResultatFoerSkattekostnad"),
+            "annual_result": _get_path(item, "resultatregnskapResultat", "aarsresultat"),
+            "assets": _get_path(item, "eiendeler", "sumEiendeler"),
+            "equity": _get_path(item, "egenkapitalGjeld", "egenkapital", "sumEgenkapital"),
+            "debt": _get_path(item, "egenkapitalGjeld", "gjeldOversikt", "sumGjeld"),
+        })
+    return {"records": normalized}
+
+
+def normalize_financial_history(body: Any, org: str) -> dict[str, Any]:
+    years = sorted({str(year) for year in body if str(year).isdigit()}) if isinstance(body, list) else []
+    return {
+        "years": years,
+        "pdfs": [
+            {"year": year, "url": f"https://data.brreg.no/regnskapsregisteret/regnskap/aarsregnskap/kopi/{org}/{year}"}
+            for year in reversed(years)
+        ],
+    }
+
+
+def normalize_roles(body: Any) -> dict[str, Any]:
+    roles = []
+    for group in body.get("rollegrupper", []) if isinstance(body, dict) else []:
+        changed = group.get("sistEndret")
+        for item in group.get("roller", []):
+            person = item.get("person") or {}
+            name = person.get("navn") or {}
+            entity = item.get("enhet") or {}
+            display_name = " ".join(filter(None, [name.get("fornavn"), name.get("mellomnavn"), name.get("etternavn")])) or entity.get("navn")
+            roles.append({
+                "name": display_name or None,
+                "organisation_number": entity.get("organisasjonsnummer"),
+                "role_code": _get_path(item, "type", "kode"),
+                "role": _get_path(item, "type", "beskrivelse"),
+                "group_code": _get_path(group, "type", "kode"),
+                "group": _get_path(group, "type", "beskrivelse"),
+                "last_changed": changed,
+                "inactive": bool(item.get("avregistrert")),
+            })
+    return {"roles": roles}
+
+
+def normalize_locations(body: Any) -> dict[str, Any]:
+    rows = _get_path(body, "_embedded", "underenheter") or []
+    return {"locations": [{
+        "organisation_number": item.get("organisasjonsnummer"),
+        "name": item.get("navn"),
+        "address": item.get("beliggenhetsadresse") or item.get("postadresse"),
+        "industry": item.get("naeringskode1"),
+        "employees": item.get("antallAnsatte"),
+    } for item in rows]}
+
+
+def _classified(field: str, source_type: str, result: Any, value: Any = None) -> dict[str, Any]:
+    from datetime import datetime, timezone
+    now_str = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    retrieved = result.retrieved_at or now_str
+    effective = result.effective_at or retrieved
+    sha = result.content_sha256
+
+    if result.status == 200:
+        return {
+            "field": field,
+            "status": "available",
+            "source_type": source_type,
+            "source_class": source_type,
+            "source_url": result.url,
+            "retrieved_at": retrieved,
+            "effective_at": effective,
+            "value": result.body if value is None else value,
+            "content_sha256": sha,
+        }
+    if result.status in {404, 410}:
+        return {
+            "field": field,
+            "status": "not_found",
+            "source_type": source_type,
+            "source_class": source_type,
+            "source_url": result.url,
+            "retrieved_at": retrieved,
+            "effective_at": effective,
+            "note": result.error,
+            "content_sha256": sha,
+        }
+    return {
+        "field": field,
+        "status": "source_error",
+        "source_type": source_type,
+        "source_class": source_type,
+        "source_url": result.url,
+        "retrieved_at": retrieved,
+        "effective_at": effective,
+        "note": result.error,
+        "content_sha256": sha,
+    }
+
+
+def fetch_official_modules(
+    org: str,
+    modules: set[str],
+    fetcher: Any = None,
+) -> tuple[dict[str, Any], list[Any]]:
+    """Evaluator replay bridge for modular official snapshot extraction."""
+    from norway_company_agent.http import fetch_json
+    if fetcher is None:
+        fetcher = fetch_json
+
+    records: dict[str, Any] = {}
+    metrics: list[Any] = []
+    endpoints = {
+        "registry_live": (f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}", "official_registry_live"),
+        "financials": (f"https://data.brreg.no/regnskapsregisteret/regnskap/{org}", "official_annual_accounts"),
+        "financial_history": (f"https://data.brreg.no/regnskapsregisteret/regnskap/aarsregnskap/kopi/{org}/aar", "official_annual_account_copies"),
+        "roles": (f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}/roller", "official_roles"),
+        "group": (f"https://data.brreg.no/enhetsregisteret/api/konsernstruktur/{org}", "official_group_structure"),
+        "locations": (f"https://data.brreg.no/enhetsregisteret/api/underenheter?overordnetEnhet={org}&size=1000", "official_subunits"),
+    }
+    for module, (url, source_type) in endpoints.items():
+        if module not in modules:
+            continue
+        result = fetcher(url)
+        metrics.append(result)
+        normalized = None
+        if result.status == 200:
+            if module == "registry_live":
+                normalized = normalize_entity(result.body)
+            elif module == "financials":
+                normalized = normalize_financials(result.body)
+            elif module == "financial_history":
+                normalized = normalize_financial_history(result.body, org)
+            elif module == "roles":
+                normalized = normalize_roles(result.body)
+            elif module == "locations":
+                normalized = normalize_locations(result.body)
+            else:
+                normalized = result.body
+        records[module] = _classified(module, source_type, result, value=normalized)
+    return records, metrics
+

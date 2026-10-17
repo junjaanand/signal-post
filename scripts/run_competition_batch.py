@@ -93,14 +93,17 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+import re
+
+
 def load_organisations(path: Path) -> list[str]:
-    """Load org numbers from JSONL, JSON, CSV, or plain text list."""
+    """Load org numbers from JSONL, JSON, CSV, or plain text list with BOM tolerance."""
     if not path.exists():
         logger.error(f"Input file not found: {path}")
         sys.exit(1)
 
     orgs: list[str] = []
-    text = path.read_text(encoding="utf-8").strip()
+    text = path.read_text(encoding="utf-8-sig").strip()
 
     if path.suffix.lower() == ".json":
         try:
@@ -108,16 +111,18 @@ def load_organisations(path: Path) -> list[str]:
             if isinstance(data, list):
                 for item in data:
                     if isinstance(item, dict):
-                        org = item.get("organisation_number") or item.get("orgnr")
+                        org = item.get("organisation_number") or item.get("orgnr") or item.get("id")
                     else:
                         org = str(item)
                     if org:
-                        orgs.append(str(org).strip())
-            return orgs
+                        clean = re.sub(r"\D", "", str(org))
+                        if len(clean) == 9:
+                            orgs.append(clean)
+                return orgs
         except json.JSONDecodeError:
             pass
 
-    # JSONL or line-by-line text
+    # JSONL, CSV, or line-by-line text
     for line in text.splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
@@ -128,14 +133,19 @@ def load_organisations(path: Path) -> list[str]:
                 row = json.loads(line)
                 org = row.get("organisation_number") or row.get("orgnr") or row.get("id")
                 if org:
-                    orgs.append(str(org).strip())
+                    clean = re.sub(r"\D", "", str(org))
+                    if len(clean) == 9:
+                        orgs.append(clean)
             except json.JSONDecodeError:
                 pass
         else:
-            # Plain org number
-            clean = line.split(",")[0].strip().replace(" ", "").replace("-", "")
-            if clean.isdigit():
-                orgs.append(clean)
+            # Plain org number or comma/semicolon-separated row
+            parts = re.split(r"[,;\t]", line)
+            for part in parts:
+                clean = re.sub(r"\D", "", part)
+                if len(clean) == 9:
+                    orgs.append(clean)
+                    break
 
     return orgs
 
@@ -158,6 +168,7 @@ def main() -> None:
             report_path=args.report,
             concurrency=args.concurrency,
             prior_manifest_path=args.manifest,
+            bulk_path=args.bulk,
         )
     )
 
